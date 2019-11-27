@@ -1,0 +1,1788 @@
+\documentclass[a4paper,12]{article}
+\renewcommand{\baselinestretch}{1.5} 
+
+\usepackage{algorithmic}
+\usepackage[]{algorithm2e}
+\usepackage{comment} 
+\usepackage{fullpage} 
+\usepackage{cite}
+\usepackage[super]{nth}
+\usepackage{blindtext}
+\usepackage{caption}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{indentfirst}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{color}
+\usepackage[table]{xcolor}
+\usepackage{lipsum}
+\usepackage{hyperref}
+\usepackage{blindtext}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{float}
+
+\newcommand\n{\mbox{\qquad}}
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue,
+	filecolor=magenta,      
+	urlcolor=cyan,
+}
+\graphicspath{ {images/} }
+\setlength{\parindent}{2em}
+\newcommand\tab[1][0.8cm]{\hspace*{#1}}
+\definecolor{lightgray}{gray}{0.9}
+
+\usepackage{color}
+\usepackage{xcolor}
+\def\yellow{\color{yellow}}
+\def\blue{\color{blue}}
+\def\red{\color{red}}
+\def\orange{\color{orange}}
+\def\brown{\color{brown}}
+
+\begin{document}
+	
+\section{Introduction}
+
+   Autonomous driving vehicles system (ADS) will become an essential technology in the future soon. Deep learning has become mainstream approaches for self-driving cars, which relies on a large scale of training datasets. Learning from corner cases is a circular component for the safety assessment of self-driving cars. However, the available self-driving cars datasets such as KITTI and Berkeley BDD datasets only focus on typical driving environment and condition, not in the public or ideal environment and condition. To address these gap, we try to develop a software package to help collect datasets of dangerous accident scenarios from Youtube to minimize the efforts of human involvement.
+ 
+To this end, three fundamental issues should be addressed:
+\begin{enumerate}
+\item accident detection from single image or a sequence of images  
+       A mechanism based on artificial intelligence should answer the following problems
+       \begin{itemize}      
+       \item Are there any accidents in the video? 
+       \item Which frames have a car accident?
+       \item Which cars were involved in the car accident?
+ \end{itemize}
+\item Depth estimation from a single RGB image
+         Convert a front-view image to a bird-view map 
+\item Ego motion estimation and vehicle trajectory generation.
+          Estimate the camera pose from a pair of images, and generate trajectories of vehicles involved in car accidents.
+\end{enumerate}
+
+ In this report, we will summarize our investigation from the solutions for these three problems: 
+The rest of this report organized as follows: section two presents the challenge of this project  In section three, we introduce a three-stage accident detection approach,
+Section four report the accident video collection  Section five until ten describes all of the material that we use to generate the vehicle trajectory. We conclude this report in Section 11.
+
+\section{Challenging Issues in This Project }
+\begin{itemize}      
+    \item  Without large-scale labeled videos 
+    
+        In recent years, action recognition based on deep learning has been developed. Deep learning works heavily depend on massive datasets. Without large scale annotations for accident videos, the state of the art event detection ( or action recognition ) deep learning approaches, which depends on a large scale of labelled videos, cannot be used.
+
+    \item Raw test video?
+    
+        Video classification using raw video? Is very different if we compared it with the performance evaluation by using a benchmark datasets such as KITTI. Accident videos on YouTube videos are widely diversified. For such an uncontrolled environment, it is hard to achieve high detection accuracy.
+        
+    \item  Accident videos captured by moving dash cameras
+    
+       Most existing approaches on action recognition take videos captured by static videos as input, where the object motion, the object moving across frames, can be acquired as features for action classification.  In our project, the videos captured by moving dash cameras, where the object motions influenced by ego-motion of the dash camera. Therefore, the motion information or trajectories obtained from the front-view camera cannot be used directly as features in accident detection.
+       
+    \item Without Camera parameters from YouTube videos 
+    
+       Specifically, we attempt to estimate the depth information of moving vehicles for the front-view images. However, these videos from YouTube do not provide intrinsic and extrinsic parameters camera parameters such as the focal length, focal point, which are critical information for 3D scene reconstruction by structure from motion. Furthermore, we cannot fine-tune Deep Neural Network models by YouTube Accident videos. Consequently, the existing depth estimation approaches based on structure from motion and deep learning cannot provide precise estimations used in our cases.
+
+ \end{itemize}
+
+\section {Car Accident Detection}
+We propose a three-stage accident classification approach 
+First, CNN-LSTM networks are used to detect out-of-control vehicles. Next, taking advantage of state-of-the-art object detection and object tracking schemes, we leverage the ratio of Intersection-over-union (IoU) of two bounding boxes from two vehicles to detect car accidents at the front-view images. Finally, cooperating with the inverse perspective transformation, we can confirm a car accident by using the occupancy map in the bird-view
+
+\begin{figure}[H]
+    \centering
+    \vspace{10mm}
+    \includegraphics[width=1\textwidth]{overall_pipeline.png}
+    \caption[Flowchart of the proposed method.]{Architecture of proposed method.}
+    \label{fig:flowchart}
+\end{figure}
+
+	
+The three-stage car accident detection approach includes:
+
+\begin{itemize}
+    \item Out-of-Control Accident Detection,
+    \item Front-view Accident Detection
+    \item Occupied Map Accident Detection
+\end{itemize}
+
+\subsection{Out-of-Control Accident Detection}
+\begin{figure}[H]
+	\centering
+	\vspace{10mm}
+	\includegraphics[width=1\textwidth]{lstm_flowchart.png}
+	\caption[Flowchart of LSTM.]{Architecture of Out-of-control Accident Detection.}
+	\label{fig:lstm}
+\end{figure}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{LSTM3-chain.png}
+	\caption{Architecture of LSTM.}
+	\label{fig:architecture_lstm}
+	\vspace{4mm}
+\end{figure*}
+
+\begin{align}
+    & z^{t} = h(W_{z}x^{t}+R_{z}y^{t-1}+b_{z}) \tag*{LSTM input (1)} \\
+    & i^{t} = \sigma(W_{i}x^{t}+R_{i}y^{t-1}+P_{i}c^{t-1}+b_{i}) \tag*{input gate (2)}\\
+    & f^{t} = \sigma(W_{f}x^{t}+R_{f}y^{t-1}+P_{f}c^{t-1}+b_{f}) \tag*{forget gate (3)}\\
+    & c^{t} = i^{t}\odot z^{t}+f^{t}\odot c^{t-1} \tag*{cell state (4)}\\
+    & o^{t} = \sigma(W_{o}x^{t}+R_{o}y^{t-1}+P_{o}c^{t}+b_{o}) \tag*{output gate (5)}\\
+    & y^{t} = o^{t}\odot h(c^{t}) \tag*{LSTM output (6)}
+\end{align}
+
+\subsection{Front-view Accident Detection}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{re3network}
+	\caption{Network structure of Re3.}
+	\label{fig:re3network}
+	\vspace{4mm}
+\end{figure*} 
+\begin{figure}[H]
+	\centering
+	\vspace{10mm}
+	\includegraphics[width=0.8\textwidth]{front_pipeline.png}
+	\caption[Flowchart of front view approach.]{Architecture of front view approach.}
+	\label{fig:frontview}
+\end{figure}
+\begin{itemize}
+\item{Detector and Tracker}
+\item{Small Bounding Boxes Removal}
+\item{GIoU Filter}
+\item{Calculate IoU between Two Cars}
+
+\end{itemize}
+
+
+ We proposed a bounding box regression loss. The main idea is that same bounding box IoU may have different align. They proposed a new IoU call GIoU to solve the problem. We take its idea to filter the car has high IoU but not at same depth.
+\begin{equation}
+IoU = \frac{\left | A\cap B\right |}{\left |A\cup B\right |}
+\end{equation}
+\begin{equation}
+GIoU =  IoU-  \frac{\left | C-(A\cup B)\right |}{\left |C\right |}
+\end{equation}
+A and B represents Bounding box of cars. C represents the smallest ellipsoids enclosing bounding box of A and B.
+
+
+\subsection{Occupied Map Accident Detection}
+
+\begin{figure}[H]
+	\centering
+	\vspace{10mm}
+	\includegraphics[width=0.7\textwidth]{bird_flowchart.png}
+	\caption[Flowchart of bird view approach.]{Architecture of bird view approach.}
+	\label{fig:birdview}
+\end{figure}
+
+\begin{itemize}
+\item{Inverse Perspective Transform}
+\item{Occupied Map}
+\end{itemize}
+
+\begin{equation}
+\begin{aligned}
+\left[
+\begin{matrix}
+
+    x^\prime & y^\prime & w^\prime \\
+\end{matrix}
+\right]
+    =
+\left[
+\begin{matrix}
+    u & v & w \\
+\end{matrix}
+\right]
+\left[
+\begin{matrix}
+    a_{11} & a_{12} & a_{13} \\
+    a_{21} & a_{22} & a_{23} \\
+    a_{31} & a_{32} & a_{33}
+\end{matrix}
+\right]
+\end{aligned}
+\end{equation}
+
+\begin{figure}[H]
+	\centering
+	\vspace{10mm}
+	\includegraphics[width=1\textwidth]{costmap}
+	\caption[Occupy map of cars.]{Occupied map.}
+	\label{fig:Costmap}
+\end{figure}
+
+
+
+\begin{figure}[H]
+	\centering
+	\vspace{10mm}
+	\includegraphics[width=1\textwidth]{costmap2}
+	\caption[Occupy map of cars.]{Occupied map of cars.}
+	\label{fig:Costmap}
+\end{figure}
+
+\subsection{Error Analysis for Three-stage Accident Detection}
+In the proposed accident detection scheme, false positives can be raised for the following cases, such as,  videos containing car accident news, car collision test,  and car racing collisions. 
+On the other hand,
+False negatives occur due to car accident videos with low resolution or bad weather conditions heavy snow days , or night or  flash light . 
+
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{f_snow.png}
+	\caption{False Negative: Snowy scene is full of noise.}
+	\label{fig:f_snow}
+	\vspace{4mm}
+\end{figure*}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{f_road.png}
+	\caption{False Negative: The dust caused by car rollover}
+	\label{fig:f_road}
+	\vspace{4mm}
+\end{figure*}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{f_losedetection.png}
+	\caption{False Negative: Lose detection when car accident occur.}
+	\label{fig:f_losedetection}
+	\vspace{4mm}
+\end{figure*}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.7\textwidth]{f_transform.png}
+	\caption{False Negative: Wrong detection due to inaccurate Inverse Perspective Transform.}
+	\label{fig:f_transform}
+	\vspace{4mm}
+\end{figure*}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{d_badresolution.png}
+	\caption{False Negative: Bad resolution video.}
+	\label{fig:d_badresolution}
+	\vspace{4mm}
+\end{figure*}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{f_crowded.png}
+	\caption{False Positive: The cars in blue bounding box crowded aside the road cause wrong car accident detection.}
+	\label{fig:f_crowded}
+	\vspace{4mm}
+\end{figure*}\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.7\textwidth]{d_cartest.png}
+	\caption{False Positive: Car test video.}
+	\label{fig:d_cartest}
+	\vspace{4mm}
+\end{figure*}
+
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{d_racing.png}
+	\caption{False Positive: Car crash in racing contest.}
+	\label{fig:d_racing}
+	\vspace{4mm}
+\end{figure*}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{d_news.png}
+	\caption{False Positive: Car accident in news.}
+	\label{fig:d_news}
+	\vspace{4mm}
+\end{figure*}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{d_train.png}
+	\caption{False Positive: Train crash.}
+	\label{fig:d_train}
+	\vspace{4mm}
+\end{figure*}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{d_flash.png}
+	\caption{False Positive: Accident video that occurred when the car flashed.}
+	\label{fig:d_flash}
+	\vspace{4mm}
+\end{figure*}
+
+\section{Video Collection}
+For autonomous driving applications, however, leveraging the power of deep learning is not as simple — such methods based on exhaustive learning of substantial datasets. Collecting driving data is expensive. Existing datasets for the autonomous driving system are limited in typical driving cases. On the other hand, some attempt and compensate for the lack of driving data with simulation. However, simulation is not the answer, as it doesn't allow you to solve problems you don't know. To overcome this limitation, we propose, collect, the new, diverse, and large-scale datasets of car accident scenes from YouTube. Due to the limitations of previous datasets, we construct a new large-scale dataset for self-driving cars.
+
+\subsection{Approach} 
+We collect the videos from YouTube using text search queries (with slight variations e.g. car crash, road accident). It consists of long untrimmed dash-cam videos, which contain compilation of videos.
+
+We remove videos which fall into any of the following conditions: manually edited, prank videos, CCTV camera's videos, news videos, captured using a hand-held camera, and contains compilation. We need to discard those videos because the accident is not clear enough. 
+
+\subsection{Annotation} 
+We will annotate 1000 videos is an unfinished task of our project. 
+For car accident detection method, only video-level labels are required for training. However, in order to evaluate its performance on testing videos, we need to know the temporal annotations, i.e. the start and ending frames of the accident event in each testing anomalous video.
+
+\subsection{Collecting Video Statistics}
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.65\textwidth]{video_classification.png}
+	\caption{Classification of downloaded videos.}
+	\label{fig:d_flash}
+	\vspace{4mm}
+\end{figure*}
+\begin{itemize}
+\item{5345 videos(from YouTube) + 4637 videos(from VEDR.tw)}
+\item{Videos size: 349 + 88(GB)}
+\end{itemize}
+Videos from YouTube
+
+\begin{itemize}
+\item{Video length : 12 minutes (average)}
+\item{Video frames : 21600 (average)}
+\item{Video size : 52 MB (average)}
+\item{Car accident number per video : 9 (average)}
+\item{Car accident length : 1 minutes 20 seconds(average)}
+\item{Car accident frames : 2400 (average)}
+\end{itemize}
+VEDR.tw
+\begin{itemize}
+\item{Video length : 54 seconds (average)}
+\item{Video frames : 1620 (average)}
+\item{Video size : 11 MB (average)}
+\end{itemize}
+\clearpage
+
+\section{Object Detection}
+To detects the car, we use Faster R-CNN model \cite{ren2015faster} to detect it. The Faster R-CNN, which is the development of Fast R-CNN \cite{girshickICCV15fastrcnn}, this architecture consists of the RPN as a region proposal algorithm and the Fast R-CNN as a detector network. The input image is first passed through the backbone CNN to get the feature map (Feature size: 60, 40, 512). Besides test time efficiency, another key reason using an RPN as a proposal generator makes sense is the advantages of weight sharing between the RPN backbone and the Fast R-CNN detector backbone. Next, the bounding box proposals from the RPN are used to pool features from the backbone feature map. This is done by the ROI pooling layer. The ROI pooling layer, in essence, works by a) Taking the region corresponding to a proposal from the backbone feature map; b) Dividing this region into a fixed number of sub-windows; c) Performing max-pooling over these sub-windows to give a fixed size output. To understand the details of the ROI pooling layer and it's advantages, read Fast R-CNN. The output from the ROI pooling layer has a size of (N, 7, 7, 512) where N is the number of proposals from the region proposal algorithm. After passing them through two fully connected layers, the features are fed into the sibling classification and regression branches. Classification branch will determine which class the object's belong to, and regression branch will determine the bounding box position. The overall methods are shown as in figure ~\ref{fig:faster}.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.7\textwidth]{fasterrcnn.jpeg}
+	\caption{Faster R-CNN architecture}
+	\label{fig:faster}
+	\vspace{4mm}
+\end{figure*}
+
+The result from faster R-CNN we could see in figure ~\ref{fig:faster_result}, where it detects any object in front of ego-car like car or truck. These result will be saved in the .xml file, the result including four points bounding box position. 
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{faster_result.jpg}
+	\caption{Faster R-CNN result}
+	\label{fig:faster_result}
+	\vspace{4mm}
+\end{figure*}
+
+\section{Lane Segmentation}
+To segment the drive-able area and not drive-able over the road, we used Mask R-CNN \cite{he2017mask} trained with BDD dataset \cite{yu18} to detect the drive-able area in front of our car. Mask RCNN is a deep neural network aimed to solve the instance segmentation problem in machine learning or computer vision. In other words, it can separate different objects in an image or a video. We give it an image; it gives us the object's bounding boxes, classes and masks. There are two stages of Mask RCNN. First, it generates proposals about the regions where there might be an object based on the input image. Second, it predicts the class of the object, refines the bounding box and generates a mask in the pixel level of the object based on the first stage proposal. Both stages are connected to the backbone structure. Figure ~\ref{fig:maskrcnn}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{mask.jpeg}
+	\caption{Mask R-CNN architecture}
+	\label{fig:maskrcnn}
+	\vspace{4mm}
+\end{figure*}
+
+At the first stage. A lightweight neural network called RPN scans all FPN top-bottom pathway (hereinafter referred to feature map) and proposes regions which may contain objects. That’s all it is. While scanning feature map is an efficient way, we need a method to bind features to its raw image location. Here come the anchors. Anchors are a set of boxes with predefined locations and scales relative to images. Ground-truth classes( only object or background binary classified at this stage) and bounding boxes assigned to individual anchors according to some IoU value. As anchors with different scales bind to different levels of the feature map, RPN uses these anchors to figure out where of the feature map ‘should’ get an object and what size of its bounding box is. Here we may agree that convolving, downsampling and upsampling would keep features staying the same relative locations as the objects in the original image, and wouldn’t mess them around.
+
+At the second stage, another neural network takes proposed regions by the first stage and assign them to several specific areas of a feature map level, scans these areas, and generates objects classes(multi-categorical classified), bounding boxes and masks. The procedure looks similar to RPN. Differences are that without the help of anchors, stage-two used a trick called ROIAlign to locate the relevant areas of the feature map, and there is a branch generating masks for each object in pixel level. The result of Mask R-CNN shown as in figure ~\ref{fig:mask_result}, we could see that the red segmentation is the drive-able area in front of the ego-car.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{mask_result.png}
+	\caption{Lane segmentation result}
+	\label{fig:mask_result}
+	\vspace{4mm}
+\end{figure*}
+
+\section {Ego-Motion Estimation}
+Generating 3D vehicle trajectories from dash-cam videos has garnered recent attention due to compelling applications in self-driving cars. To prevent car accidents in advance, we must first understand the leading causes of car accidents and the driving modes that are prone to car accidents based on these 3D vehicle trajectories. The backbone of Mask R-CNN is an FPN style deep neural network. It consists of a bottom-up pathway, a top-bottom pathway and lateral connections. Bottom-up pathway can be any ConvNet, usually ResNet \cite{he2015residual} or VGG \cite{simonyan2014convolutional}, which extracts features from raw images. Top-bottom pathway generates feature pyramid map, which is similar in size to the bottom-up pathway. Lateral connections are convolution and adding operations between two corresponding levels of the two pathways. FPN outperforms other single ConvNets mainly for the reason that it maintains strong semantically features at various resolution scales.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=1.0\textwidth]{Architecture-Driving.png}
+	\caption{Driving Information System Flow Chart}
+	\label{fig:Architecture-Driving}
+	\vspace{4mm}
+\end{figure*}
+
+In this chapter, we explore an intriguing scenario for 3D vehicle trajectory estimation: generating trajectories of vehicles involved accidents from online videos on YouTube captured by dash-cameras. First, we estimate camera ego-motion using both the structure from motion, where we use the feature point pairs of two adjacent frames, and recently used struct2depth to estimate the ego-motion. Since ego-motion estimation from image pairs suffers from the scale ambiguity problem, where only a relative speed can be obtained. To address this problem, first, we use a novel vehicle depth estimation based on a combination of the inverse perspective transform a dash line heuristic and sequentially calculate a moving vector from adjacent frames at the bird view by using matching feature pairs. Finally, we can obtain 3D vehicle trajectories in the world coordinate by adding the estimated camera ego-motion and vehicle motion in the car coordinate.
+
+\subsection{Structure-From-Motion}
+
+By using the sequences of images or videos, our first step aims to recover the camera pose for each image or frame. It is also known as the structure-from-motion problem in computer vision or image processing.
+        
+The procedure to do structure from motion can be summarized as follows:
+
+\begin{table}[h]
+\begin{tabular}[t]{|@{}p{15cm}|}
+\hline
+\begin{enumerate}
+	\item Capture images: It, It+1
+	\item Camera Parameter Estimation
+	\item Feature Detection
+	\subitem SIFT algorithm 
+	\item Feature Tracking
+	\subitem KLT tracker
+	\item Essential Matrix Estimation
+	\subitem RANSAC
+	\item Computing R, t from the Essential Matrix
+	\item Constructing Trajectory
+\end{enumerate} \\
+\hline
+\end{tabular}
+\end{table}
+ 
+\begin{itemize}
+\item {Camera Parameter Estimation}
+
+\hspace{4mm} To estimate the focal length, first, we need to know the object distance (in meters), the object height (in meters), and object size in the image (in pixels). For example, we have a car in front of our camera with distance 20 meters, and car height is 1.75 meters, and our system detected that object with bounding box size 50 x 50 pixels, so we could get the camera's focal length by using this equation :
+	
+\begin{equation}
+    F = \frac{p*d}{w}
+\end{equation}
+
+\hspace{4mm} Where p is equal to object's width in the image (pixels), d is equal to the distance from the camera to the objects (in meters), and w is equal to object's width in real-world coordinate (in meters). By using the example above, we could get the focal length around 571.42. Figure ~\ref{fig:estimate_fc} show the illustration about the object width, object distance, and image distance.
+
+\begin{figure}[!http]
+    \centering
+    \includegraphics[scale=0.4]{a.png}
+    \caption{Object being image by lens}
+    \label{fig:estimate_fc}
+\end{figure}
+
+\hspace{4mm} Figure ~\ref{fig:estimate_fc_result} this is the comparison between camera parameters prediction result and the ground truth. We can see that the error of focal length is quite small, around 1.11 percent, but for the principal point X, the error is about 3 percent, for the principal point Y the error is increasing to 6 percent.
+
+\begin{figure}[!http]
+    \centering
+    \includegraphics[scale=0.5]{cam.JPG}
+    \caption{Camera parameters estimation result.}
+    \label{fig:estimate_fc_result}
+\end{figure}
+   
+\item {Feature Detection}
+
+\hspace{4mm} Automatic SfM depends on stable feature points matches across image pairs.
+First, we are required to extract stable feature points for each image.
+The interest points may SIFT points, SURF points, Harris corners.
+Some approaches also use as line segments or curves.
+For a video sequence, some people also use tracking points.
+However, we will not discuss these here. \\
+
+\begin{figure}[!http]
+    \centering
+    \includegraphics[scale=0.5]{sift.jpg}
+    \caption{SIFT algorithm}
+    \label{fig:FAST algorithm}
+\end{figure}
+
+\hspace{4mm} In 2004, D.Lowe, University of British Columbia, came up with a new algorithm, Scale Invariant Feature Transform (SIFT) \cite{Lowe:2004:DIF:993451.996342} in his paper, Distinctive Image Features from Scale-Invariant Keypoints, which extract keypoints and compute its descriptors. There are mainly four steps involved in the SIFT algorithm.
+
+\begin{enumerate}
+  \item Scale-space Extrema Detection
+  \item Keypoint Localization
+  \item Orientation Assignment
+  \item Keypoint Descriptor
+  \item Keypoint Matching
+\end{enumerate}
+
+
+\item Feature Tracking by KLT Tracker
+
+\hspace{4mm} Optical flow is the pattern of apparent motion of image objects between two consecutive frames caused by the movement of object or camera. It is a 2D vector field where each vector is a displacement vector showing the movement of points from the first frame to second. One method is the Kanade-Lucas-Tomasi method. The tracker is based on the early work of Lucas and Kanade \cite{Lucas:1981:IIR:1623264.1623280}, was developed entirely by Tomasi and Kanade \cite{tomasi1991detection}, and was explained clearly in the paper by Shi and Tomasi \cite{Shi1994}. Later, Tomasi proposed a slight modification which makes the computation symmetric for the two images.  Briefly, good features are located by examining the minimum eigenvalue of each two by two gradient matrix, and features are tracked using a Newton-Raphson method of minimizing the difference between the two windows. Multiresolution tracking allows for relatively large displacements between images. The result of KLT tracker is shown in figure ~\ref{fig:KLT tracker}.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[scale=0.55]{klt.PNG}
+    \caption{KLT tracker}
+    \label{fig:KLT tracker}
+\end{figure}
+	    
+\item Feature Selection
+
+\hspace{4mm} We use Forward and Backward Error \cite{conf/icpr/KalalMM10} to Select Feature Points, using this method, we remove the unmatched keypoints. The illustration of these methods is shown as in figure ~\ref{fig:Forward and Backward Error}.
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[scale=0.4]{fb_error.PNG}
+    \caption{Forward and Backward Error}
+    \label{fig:Forward and Backward Error}
+\end{figure}	    
+	    
+
+\item{Essential Matrix Estimation}
+	  
+RANSAC
+	   	    
+\begin{equation}
+    \begin{aligned}
+        &K = \left[
+        \begin{matrix}
+            f & 0 & x_{pp} \\
+            0 & f & y_{pp} \\
+            0 & 0 & 1
+        \end{matrix}
+        \right] \\
+        &q^{\prime^T}{(K^{-1})}^TEK^{-1}q = 0  \\
+        \rightarrow &\bar{q}^{\prime}E\bar{q} = 0
+    \end{aligned}
+\end{equation}
+	    
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[scale=0.4]{essential.png}
+    \label{fig:Essential Matrix Estimation}
+    \caption{Essential Matrix Estimation}
+\end{figure}
+
+\item Compute Camera Pose from Essential Matrix
+\begin{equation}
+    \begin{aligned}
+        E = U \Sigma V^{T} \\
+        [t]_{x} = VW\Sigma V^{T} \\
+        R = UW^{-1}V^{T}
+    \end{aligned}
+\end{equation}
+
+\begin{equation}
+    \begin{aligned}
+        E = R[t]_{x}
+    \end{aligned}
+\end{equation}
+
+\item Compute trajectories from a sequence of images
+\begin{equation}
+\begin{aligned}
+R_{pos} = RR_{pos} \\
+t_{pos} = t_{pos}+tR_{pos}
+\end{aligned}
+\end{equation}
+
+ \end{itemize}
+
+\textbf{The Ego Motion Estimation on KITTI datasets}
+\begin{itemize}
+    \item KITTI
+\end{itemize}
+
+\begin{figure}[!http]
+    \centering
+    \includegraphics[scale=0.45]{res.PNG}
+    \label{fig:result-KITTI}
+    \caption{Result-KITTI}
+\end{figure}
+
+
+\begin{itemize}
+    \item Taiwan
+\end{itemize}
+
+\begin{figure}[!http]
+    \centering
+    \includegraphics[scale=0.45]{taiwan.PNG}
+    \label{fig:result-Taiwan}
+    \caption{Result-Taiwan}
+\end{figure}
+
+\subsubsection{Advanced Monocular Distance Estimation using Deep Learning }
+	\label{sub:depth}
+	Recent years, using deep learning to estimate depth and ego-motion from (monocular image) or video becomes a current research issue. However, it is difficult to use these solutions for our project directly. First, we cannot obtain a precise intrinsic camera model including the focal length from Youtube videos, and it is difficult to train or fine-tune these models without suitable training data forms from Youtube, e.g., stereo videos. Even with these obstacles, we still can use pre-trained models and an “approximate” intrinsic camera model to provide “approximate “ depth information and ego-motion to attach trajectories of accident vehicles.	
+	
+	\subsubsection{Depth Prediction Without the Sensors: Leveraging Structure for Unsupervised
+Learning from Monocular Videos \cite{casser2019struct2depth}}
+	
+    In this work, they mimic this approach by training a model that observes sequences of images and aims to explain its observations by predicting likely camera motion and the scene structure (as shown in Figure \ref{fig:Unsupervised_Depth_01}). They take an end-to-end approach in allowing the model to map directly from input pixels to an estimate of ego-motion (parameterized as 6-DoF transformation matrices) and the underlying scene structure (parameterized as per-pixel depth maps under a reference view). Their method is unsupervised and can be trained merely using sequences of images with no manual labelling or even camera motion information. The ego-motion and depth estimation that we use is struct2depth \cite{casser2019struct2depth}, which is the development from SfMLearner \cite{zhou2017unsupervised}; this methods take the same way to predict the ego-motion and depth map. They use unsupervised learning to learn their network.
+    
+    \begin{figure}[H]
+	    \centering
+	    \includegraphics[scale=0.6]{lev.png}
+	    \caption{Overview of the struct2depth method}
+	    \label{fig:Unsupervised_Depth_01}
+	\end{figure}
+
+	\subsubsection{Absolute Scale Estimation for Monocular Visual Odometry} 
+	\begin{itemize}
+	\item Feature point pairs selection
+	\item Inverse perspective transformation
+	\item Distance estimation by dotted line heuristic
+	\item Scale ratio calculation
+	\item Coordinate rotation
+	\item Car coordinate to world coordinate transformation	
+	\end{itemize}
+	\begin{figure}[H]
+	    \centering
+	    \includegraphics[scale=0.3]{absolute_scale.png}
+	    \caption{Pipeline of absolute scale for monocular visual odometry.}
+	    \label{fig:Pipeline of absolute scale for monocular visual odometry.}
+	\end{figure}	
+	
+	\begin{figure}[H]
+	    \centering
+	    \includegraphics[scale=0.6]{points_mask.png}
+	    \caption{Interesting Points Mask for points filter.}
+	    \label{fig:Interesting Points Mask for points filter.}
+	\end{figure}	
+	
+\section{3D Bounding Box with Deep Learning}
+We present a method for predicting the 3D bounding box using a single image. The existing methods mostly added LiDAR data into their methods \cite{ku2018joint} \cite{Ali2018YOLO3DER} to predict the 3D bounding box. In our methods, we only use RGB images to predict the 3D bounding box because, in the real-world case, it is hard to generate the LiDAR data. Using a deep convolutional neural network and combine with geometric constraints provided by a 2D object bounding box to get the 3D bounding box. The first network output estimates the 3D object dimensions using mean square error (MSE). The second network output estimates the 3D object orientation using a novel hybrid discrete-continuous loss, which outperforms the L2 loss \cite{Mousavian20163DBB}. The third network output estimates the 3D bounding box confidence score using binary cross-entropy loss. These estimates, combined with the geometric constraints on translation imposed by the 2D bounding box, enable us to get a better and accurate 3D object pose. We evaluate our method on KITTI benchmark on the official metric of 3D orientation estimation and also on the accuracy of the obtained 3D bounding box. We also test our methods in accident-videos to know whether our methods work on the real-case or not.
+	
+	\begin{figure*}[!h]
+    	\centering
+    	\includegraphics[width=0.5\textwidth]{fig1.png}
+    	\caption{Our method takes the 2D detection bounding box and estimates a 3D bounding box}
+    	\label{fig:Architecture-Lines}
+    	\vspace{4mm}
+    \end{figure*}
+
+	In order to leverage the success of existing work on 2D object detection for 3D bounding box estimation, we use the fact that the perspective projection of a 3D bounding box should fit tightly within its 2D detection window like shown in figure 1. We assume that the 2D object detector has been trained to produce boxes that correspond to the bounding box of the projected 3D box. The 3D bounding box is described by its center $T = [tx, ty, tz]^T$, dimensions $D = [dx, dy, dz]$, and orientation $R(\theta, \phi, \alpha)$, here paramaterized by the azimuth, elevation and roll angles. Given the pose of the object in the camera coordinate frame $(R, T) \in SE(3)$ and the camera intrinsics matrix K, the projection of a 3D point $Xo = [X, Y, Z, 1]^T$ in the object's coordinate frame into the image $x = [x, y, 1]^T$ is:
+    
+    \begin{equation}
+        x = K[RT]X_{o}
+    \end{equation}
+    
+    Assuming that the origin of the object coordinate frame is at the center of the 3D bounding box and the object dimensions D are known, the coordinates of the 3D bounding box vertices can be described simply by $X_{1} = [d_{x}/2,d_{y}/2,d_{z}/2]^T$, $X_{2} = [-d_{x}/2,d_{y}/2,d_{z}/2]^T$, ... , $X_{s} = [-d_{x}/2,-d_{y}/2,-d_{z}/2]^T$. The constraint that the 3D bounding box fits tightly into the 2D detection window requires that each side of the 2D bounding box to be touched by the projection at least one of the 3D bounding box corners. Foe example, consider the projection of one 3D corner $X{o} = [d_{x}/2,-d_{y}/2,d_{z}/2]^T$ that touches the left side of the 2D bounding box with coordinate $x{min}$. This point-to-side correspondence constraint results in the equation:
+    
+    \begin{equation}
+        x{min} = \begin{pmatrix}
+        K[R T] & \begin{bmatrix}
+        d{x}/2\\ -d{y}/2
+        \\ d{z}/2
+        \\ 1
+        \end{bmatrix}
+        \end{pmatrix}_{x}
+    \end{equation}
+    
+    where (.)x refers to the x coordinate from the perspective projection. Similar equations can be derived for the remaining 2D box side parameters $x_{max}, y_{min}, y_{max}$. In the total the sides of the 2D bounding box provide four constraints on the 3D bounding box, This is not enough to constrain the nine degrees of freedom (DoF), three for translation, three for rotation, three for box dimensions. There are several different geometric properties we could estimate from the visual appearance of the box to further constrain the 3D box. The main criteria is that they should be tied strongly to the visual appearance and further constrain the final 3D box.
+    
+    \subsection{Deep Convolutional Neural Network}
+    In this section I will describe my convolutional neural network that I used to estimate the 3D bounding box orientation and dimensions. The network we trained with total 7481 training images using KITTI dataset \cite{Geiger2012CVPR}. The backbone of our network is VGG16. The input of our network is RGB images. The overall architecture is shown in figure 2. This input, cropped based on the 2D detection bounding box and then passed to the MobilenetV3 network. At the last layer after flattened layer, we divided it into three branches of fully connected layer. The first fully connected (FC) layer is used to predict the object's 3D bounding box dimensions, the second fully connected layer is used to predict the object's 3D bounding box orientation, which is the angle of sin and cos, the last fully connected layer is used to predict the object's 3D bounding box confidence scores. So all of these fully connected layer branch use the same shared convolutional features.
+    
+    \begin{figure*}[!h]
+	\centering
+	\includegraphics[width=1\textwidth]{fer.JPG}
+	\caption{Our overall 3D bounding box architecture}
+	\label{fig:Architecture-Lines}
+	\vspace{4mm}
+    \end{figure*}
+    
+    To regress 3D parameters, we use a pre-trained model VGG16 with its FC layers and add our 3D box module. The output from CNN network will branch off into three FC layers. The first FC layers in each of the orientation branches have 256 dimensions, while the first FC layer for dimension regression has a dimension of 512. During training, each ground truth crop is resized to 224x224. In order to make the network more robust to viewpoint changes and occlusions, the ground truth boxes are jittered and the ground truth $\theta_{l}$ is changed to account for the movement of the center ray of the crop. We also add image augmentation like mirroring the images at random. The network that we trained is using Adam optimizer with learning rate 0.0001 and decay by 20 percent every 10 epoch. The training time is take an average two days in each experiment.
+    
+\subsection{Loss}
+We use a similar idea in our proposed MultiBin architecture for orientation estimation. We first discretize the orientation angle and divideit ino n overlapping bins. For each bin, the CNN network estimates both a confidence probability $c_{i}$ that the output angle lies inside the $i^th$ bin and the residual rotation correction that needs to be applied to the orientation of the center ray of that bin in order to obtain the output angle. The residual rotation is represented by two numbers, for the sine and the cosine of the angle. This result in 3 outputs for each bin $i: (c_{i}, cos(\Delta\theta_{i}), sin(\Delta\theta_{i}))$. Valid cosine and sine values are obtained by applying an L2 normalization layer on top of a 2-dimensional input. The total loss for the MultiBin orientation thus:
+
+\begin{equation}
+L_{\theta} = L_{conf} + w x L_{loc}
+\end{equation}
+
+The confidence loss $L_{conf}$ is equal to the softmax loss of the confidences of each bin. $L_{loc}$ is the loss that tries to minimize the difference between the estimated angle and the ground truth angle in each of the bins that covers the ground truth angle, with adjacent bins having overlapping coverage. In the localization loss $L_{loc}$, all the bins that cover the ground truth angle are forced to estimate the correct angle. The localization loss tries to minimize the difference between the ground truth and all the bins that cover that value which is equivalent of maximizing cosine distance. Localization loss 
+$L_{loc}$ is computed as following:
+
+\begin{equation}
+L_{loc} = -\frac{1}{n_{\theta*}}\sum cos(\theta^{*}-c_{i}-\Delta \theta_{i})
+\end{equation}
+
+where $n_{\theta*}$ is the number of bins that cover ground truth angle $\theta^*$, $c_{i}$ is the angle of the center of bin $i$ and $\Delta \theta_{i}$ is the change that needs to be applied to the center of bin $i$.
+
+    \begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{satu.JPG}
+	\caption{Our result tested on KITTI dataset}
+	\label{fig:saty}
+	\vspace{4mm}
+    \end{figure*}
+    
+    \begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{dua.JPG}
+	\caption{Our result tested on accident videos from youtube}
+	\label{fig:dua}
+	\vspace{4mm}
+    \end{figure*}
+
+
+\section{Distance Estimation from Single Image} 
+In this chapter, we leveraged state-of-the art approaches in object tracking, lane detection and inverse perspective transformation to develop a novel distance estimation approach, which can restore the distance information by a lane line heuristic methods, the overall systems is shown like in figure ~\ref{fig:Architecture-Bird}. First, we use the object detector and object tracker to extract moving objects and then apply the Mask-RCNN \cite{He2017MaskR} to detect lane markings and drive-able area like shown in figure ~\ref{fig:lane_seg_combine} from the front-view images, then we apply color filter using color-space to detect the color \cite{Nikolskaia2018SkinDT}, which is yellow mask, white mask, and blue mask to get the only lane information like shown in figure ~\ref{fig:wy_mask}. The final result of detected lane information like shown in figure ~\ref{fig:wy_mask_and_lane_lines}. Subsequently, the inverse perspective transform is used to generate a bird-view Image, where a lane line heuristic is used to estimate the depth information for each vehicle, the overall methods is shown like in the figure ~\ref{fig:Architecture-Lines}.	 
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.5\textwidth]{Architecture-Bird.png}
+	\caption{Distance Estimation from Single Image}
+	\label{fig:Architecture-Bird}
+	\vspace{4mm}
+\end{figure*}
+	 
+\subsection{Finding Lane Lines from Front View Images}
+To get the lane lines from front view images, first, we need to run Mask R-CNN \cite{he2017mask} to get the drive-able area over the image or lane segmentation, because we want only detect the lane information beside the drive-able area.
+
+\begin{figure*}[!h]
+    \centering
+    \includegraphics[width=0.5\textwidth]{System_Flow_Chart_line.png}
+    \caption{System Flow Chart: Finding Lane Lines }
+    \label{fig:Architecture-Lines}
+    \vspace{4mm}
+\end{figure*}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{lane_seg_combine.png}
+	\caption{Ego-Lane Segmentation by Mask RCNN}
+	\label{fig:lane_seg_combine}
+	\vspace{4mm}
+\end{figure*}
+
+\subsection{Color Filter}
+The colour filter that we use for detects the lane is a white mask, yellow mask, and blue mask. We use a white mask and yellow because most of the lane information, the colour is white or yellow. Blue mask is an addition because, in some environmental condition, the colour temperature is blue or purple. The result of this step is shown as in figure ~\ref{fig:wy_mask}.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{wy_mask.png}
+	\caption{White-yellow-blue masked image}
+	\label{fig:wy_mask}
+	\vspace{4mm}
+\end{figure*}
+
+Figure ~\ref{fig:wy_mask_and_dotted_lines} showed the dotted result from the colour filtering using a white-yellow-blue colour mask. We could see that the detected lane will have a purple dotted colour as we could see. The final result is shown in figure ~\ref{fig:wy_mask_and_lane_lines}, where our methods able to detect the lane.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{wy_mask_and_dotted_lines.png}
+	\caption{Search Lane Lines on White-Yellow Masked Image}
+	\label{fig:wy_mask_and_dotted_lines}
+	\vspace{4mm}
+\end{figure*}
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{wy_mask_and_lane_lines.png}
+	\caption{Extend the Lane lines}
+	\label{fig:wy_mask_and_lane_lines}
+	\vspace{4mm}
+\end{figure*}
+
+\subsection{Lane Segmentation Refinement}
+In this step is used to determine how if the lane information is same over the frames, we could see in figure ~\ref{fig:Architecture-Outlier}, first using the lane lines based on the last two frames, we calculate the cosine similarity between current frame and previous frames and previous frames and previous two frames, if the cosine similarity is higher than the threshold, we draw the lane information in the front view image.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.8\textwidth]{Architecture-Outlier.png}
+	\caption{Remove Lane Outliers (Front View)}
+	\label{fig:Architecture-Outlier}
+	\vspace{4mm}
+\end{figure*}
+	    
+\subsection{Region-of-Interest Selection}
+To convert the front view images to BEV images, we need four points that determine the area of the birds-eye view; the four-point is showed like in figure ~\ref{fig:src-Outlier}, where all of the points will define the corners of the BEV images.
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[scale=0.6]{matlab_front_view.png}
+   \caption{Region-of-Interest Selection}
+   \label{fig:src}
+\end{figure}
+	    
+ \subsection{Inverse Perspective Transformation }
+We use inverse perspective transformation to map front view image to bird view \cite{Tanveer2018AnIP}. The inverse perspective transformation is closely related to the perspective projection. The perspective projection maps points in the three-dimensional physical world onto points on the two-dimensional image plane along with a set of projection lines that all meet at a single point called the centre of projection. The perspective transformation, which is a specific kind of homography, relates two different images that are alternative projections of the same three-dimensional object onto two different projective planes (and thus, for non-degenerate configurations such as the plane physically intersecting the 3D object, typically to two different centres of projection). First, we select the area which we want to map to the bird view (point 0 to point 3), as Figure ~\ref{fig:src} show. Second, we use the OpenCV getPerspectiveTransform function to calculates a perspective transform matrix from four pairs of the corresponding points. Final, we can use the perspective transform matrix to get the bird view image, as Figure ~\ref{fig:dst} show.
+        
+The function does not change the image content but deform the pixel grid and map this deformed grid to the destination image. In fact, to avoid sampling artefacts, the mapping is done in the reverse order, from destination to the source. That is, for each pixel  of the destination image, the functions compute coordinates of the corresponding “donor” pixel in the source image and copy the pixel value:
+
+\begin{equation}
+    dst(x,y) = src(f_x(x,y),f_y(x,y))
+\end{equation}
+
+The function calculates the 3 $\times$ 3 matrix of a perspective transform so that:
+
+\begin{equation}
+    {\left[ 
+    \begin{array}{ccc}
+        t_i x_i' \\
+        t_i y_i' \\
+        t_i
+    \end{array} 
+    \right ]} 
+    = map.matrix \cdot
+       {\left[ 
+    \begin{array}{ccc}
+        x_i \\
+        y_i \\
+        1
+    \end{array} 
+    \right ]}
+    \label{eq:PerspectiveTransform}
+\end{equation}
+
+where
+
+\begin{equation}
+    dst(i) = (x_i',y_i'), src(i) = (x_i,y_i), i = 0,1,2,3
+\end{equation}
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[scale=1.1]{matlab_bird_view.png}
+   \caption{Destination image}
+   \label{fig:dst}
+\end{figure}
+
+\subsection{Distance Estimation by Dotted Line Heuristic}
+On Taiwan's road, one dotted line is ten meters long (White Line: 4 meters, InterSpace: 6 meters), and lane width is 3.5 meters. As Figure ~\ref{fig:Dotted} and figure ~\ref{fig:DottedBird} show, we can use these information to estimate the car distance.
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[scale=0.6]{Dotted.png}
+   \caption{}
+   \label{fig:Dotted}
+\end{figure}
+
+To get the parameters for mapping as we can see in figure ~\ref{fig:Architecture-ROI}, first, we use the bird view map and the lane detection to calculate how many pixels long is the dotted line, which is 100 pixel is equal to ten meters. Second, we know that one dotted line is ten meters long, so we can get that one pixel to represent how long in meters. Final, we re-size our bird view map to let ten pixels represent one meter, then we can get the distance between the car and us by bird view map. 
+
+\begin{figure*}[!h]
+    \centering
+    \includegraphics[width=0.4\textwidth]{Architecture-ROI.png}
+    \caption{Select ROI for Mapping}
+    \label{fig:Architecture-ROI}
+    \vspace{4mm}
+\end{figure*}
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[scale=0.6]{DottedBird.png}
+   \caption{10 meters logn equal to 100 pixels}
+   \label{fig:DottedBird}
+\end{figure}
+
+
+\subsection{Distance Estimation by Depth Map and Lane Segmentation}
+\subsubsection{Estimate The Distance}
+In some cases, the road doesn't have any line information; this lane information is critical to estimate the four points that needed for BEV transformation. Because of this problem, I tried to get the distance of each car based on the depth map information only. My proposed methods are I try to use the ratio between current pixel (average depth map pixel of the detected car), average pixel (average depth map pixel of one image), and total pixel (maximum pixel in the image, 255). Based on this ratio, I tried to create an equation so it can estimate the distance between ego-car and detected car. The formula is as follows :
+	
+\begin{equation}
+    Distance = 2^{\frac{e^{RAT}}{RCA}}*\frac{CP}{8^{e^{RCT}}}
+\end{equation}
+
+Where :
+\begin{enumerate}
+    \item RAT = Average Pixel / Total Pixel
+    \item RCA = Current Pixel / Average Pixel
+    \item RCT = Current Pixel / Total Pixel
+\end{enumerate}
+    
+The distance is in the meters value.
+
+\subsubsection{Generate BEV four points from depth}
+After we got the estimated distance from the depth map, I try to get the BEV four points to generate BEV image with specifications 60 meters ahead of the ego car and five lanes field of detection. The BEV four points I divide it into two methods first is based on the global pixel, and the second is based on the local pixel. Global pixel means that we consider all of the pixels of the detected object, local pixel means I used the nearby pixel value to calculate the current pixel. The algorithm of the global pixel is shown like in figure 1, first step we need to get the depth information, bounding box information and lane segmentation. Using depth information and bbox information we need to calculate RAT, RCA, and RCT then calculate the distance as I have explained in the previous part. Then we need to check whether the distance, width of bbox, and height of bbox is according to the requirement, if no it will go to the next bounding box of detected object in the image, if yes, we save the bbox and the distance, lty and rty value calculated based on the ymax from bounding box subtract by the distance. In the lty and rty cases, if there is no vehicle in our image, it will return a Nan value, when the system checked there is a nan value, it will use the lowest height from lane segmentation to calculate the lty and rty and added by value based on the lowest height value, if there is vehicle around us, we need to get the average over the rty and lty. To calculate the ltx and rtx, is based on the lane segmentation from Mask R-CNN \cite{matterport_maskrcnn_2017}, ltx is the minimum value of the lowest height from drive-able area and rtx is the maximum value of the lowest height from the drive-able area. ldx, ldy, rdx, rdy value is based on the average value of BEV parameters. After we got all four points, the next step is we do perspective transform and is the value to warp perspective, the result from this step will be BEV parameters saved in the h5 file format. The final result is the four points with 60 meters ahead of the ego-car and five lanes field of detection. An overall flowchart is showed in figure ~\ref{fig:4po}.
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[scale=0.4]{distance_depth_revv.png}
+   \caption{Fourpoints flowchart}
+   \label{fig:4po}
+\end{figure}
+
+The result is shown as in figure ~\ref{fig:depth_bev}, we could see that it could generate BEV images even there is no dotted lane information.
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[scale=0.8]{depth_bev.png}
+   \caption{BEV images generated from depth map and lane segmentation}
+   \label{fig:depth_bev}
+\end{figure}
+
+\subsection{Performance Assessment}
+By using the method we introduce previously, we can get the bird view map of Figure \ref{fig:Trajectory}, like Figure \ref{fig:TrajectoryBird} shows. We cut the map into 5 $\times$ 6 blocks. If there is an object in the block, we will colour it grey. As a note, our birds-eye view specifications is only coverage 60 meters ahead of the ego-car and 7 meters on the left and right side of the ego-car. 
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[width=0.8\textwidth]{Front00.png}
+   \caption{Front View Trajectory and Lane Detection}
+   \label{fig:Trajectory}
+\end{figure}
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[width=0.17\textwidth]{Bird00.png}
+   \caption{Bird View Trajectory and Lane Detection}
+   \label{fig:TrajectoryBird}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+   \centering
+   \includegraphics[width=0.8\textwidth]{Front01.png}
+   \caption{Front View Trajectory and Lane Detection}
+   \label{fig:Trajectory}
+\end{figure}
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[width=0.2\textwidth]{Bird01.png}
+   \caption{Bird View Trajectory and Lane Detection}
+   \label{fig:TrajectoryBird}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+   \centering
+   \includegraphics[width=0.8\textwidth]{Front02.png}
+   \caption{Front View Trajectory and Lane Detection}
+   \label{fig:Trajectory}
+\end{figure}
+
+\begin{figure}[H]
+   \centering
+   \includegraphics[width=0.2\textwidth]{Bird02.png}
+   \caption{Bird View Trajectory and Lane Detection}
+   \label{fig:TrajectoryBird}
+\end{figure}
+	
+\pagebreak
+\subsection{ Performance Comparisons of Three Distance Estimation Schemes}
+In this section, Kitti dataset \cite{Geiger2013IJRR} is used to assess performance of three distance estimation schemes:
+
+\begin{enumerate}
+    \item Vision-based ACC with a Single Camera proposed by mobileye
+    \item Depth and ego motion estimation by deep learning from U. C. Berkeley
+    \item Depth estimation by dotted line heuristic invented by ourselves
+\end{enumerate}
+ 
+When the potted lines in road scenes are clear, the depth estimation heuristic based on known line segment length in Taiwan highways outperforms the other two approaches. The Vision-based ACC with a Single-Camera didn’t perform well due to lack of accurate value of focal distance. If you can get the correct focal distance value, this approach can easily calculate the font car distance.  On the other hand, Depth estimation and ego-motion by Deep Learning is a powerful method, but we need to fine-tune (or training) a new model by using YouTube videos. Since the current model is trained by KITTI datasets, it cannot perform well for videos from YouTube dash camera datasets.
+
+\begin{figure*}[!h]
+	\centering
+	\includegraphics[width=0.9\textwidth]{Result_ITRI.png}
+	\caption{Testing on ITRI dataset. P: prediction (meter), G: ground truth (meter).}
+	\label{fig:Result_ITRI}
+	\vspace{4mm}
+\end{figure*} 
+
+\clearpage
+\begin{enumerate}
+\item Testing Data A
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00465b.png}
+        \caption{Distance Estimation by Deep Learning (Distance: 20.1 meters)}
+        \label{fig:kitti_00465b}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00465d.png}
+        \caption{Distance Estimation by Dotted Line Heuristic (Distance: 3.7 meters)}
+        \label{fig:kitti_00465d}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00465m.png}
+        \caption{Distance Estimation by Vision-based ACC with a Single Camera (Distance: 2.8 meters)}
+        \label{fig:kitti_00465m}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00465g.png}
+        \caption{KITTI Ground Truth (Distance: 6.8 meters)}
+        \label{fig:kitti_00465g}
+    \end{figure}
+    
+\item Testing Data B
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00522b.png}
+        \caption{Distance Estimation by Deep Learning (Distance: 10.3 meters)}
+        \label{fig:kitti_00465b}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00522d.png}
+        \caption{Distance Estimation by Dotted Line Heuristic (Distance: 25.1 meters)}
+        \label{fig:kitti_00465d}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00522m.png}
+        \caption{Distance Estimation by Vision-based ACC with a Single Camera (Distance: 9.8 meters)}
+        \label{fig:kitti_00465m}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[scale=0.3]{kitti_00522g.png}
+        \caption{KITTI Ground Truth (Distance: 28.8 meters)}
+        \label{fig:kitti_00465g}
+    \end{figure}
+
+\end{enumerate}
+	
+\section{Get The Free Area}
+\label{sec:free_are}
+This part is we will explain how we determine the free area over the image. To estimate the free area, I used the information from BEV parameters, RGB images, detected vehicle position in BEV position and lane segmentation, the flowchart like shown in figure ~\ref{fig:free_area_rev}. This method needs four kinds of inputs, first is information, which is the detected car position in BEV, second is BEV parameters, the third is RGB images, and the forth is lane segmentation. In our methods, I divide it into two sections, first is used to calculate the free area and the second section is used to choose the final free area. In the first section, using the BEV parameters and RGB images, first we need to convert the front view image into the bird view image using perspective transform, because we need to identify, detect their possible movements and observe their relative position a distances stay within the set limits \cite{conf/cimaging/SchoutenB08}, from this transformation we will make a mask based on the X and Y vehicle position, this mask will be divided into 5 x 8 region, it used to get the area where there isn't vehicle over that divided area, to know there is a vehicle or not we use contour to get the free area \cite{Bradski:2013:LOC:2523356}, the nearby area we need to combine it using dilate using suitable window size \cite{journals/pami/GilK02} and we create the final mask, this final mask we divided it into Z x 6 and get the contour to know the final free area, Z is the value comes from the lane segmentation, my methods are first we read the lane segmentation and divided it by the total pixel value, the result will be used to determine how many region (Z) that we need to divide. This free area, I store it and do some process to remove the occluded area, occluded area means that in front of the free area is occluded by the vehicle, I will remove this free area because it's not accurate. Last, I save the free area position in .h5 file. In section two, choose the final free area, is used to decide when is the right frame to put the car in the simulator and where is the best position to put the car in the image. The flow is shown as in figure ~\ref{fig:free_area_rev} in the red box. Using the information from section one, to get the starting frame first we need to save the total area from all of the frames and calculate the average of total free area, to decide the starting frame, if the total of free area in a frame is more than the average, then it will be chosen as the starting frame to put the car. To get the position of free area, I save all of the free areas in the dictionary and then get the key with the highest value, this highest value is the position that has the highest possibility of free area. Last, this two information, starting frame and the position will be saved in the .h5 file for visualization section. In this part, we also have output the vehicle that comes in the reverse direction, by comparing the position between current frames and previous frames we determine the direction of the vehicle, if it more than the threshold, it will save the object id of the reverse direction vehicle.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.5]{free_area_rev_newe.png}
+    \caption{Calculate the free area flowchart}
+    \label{fig:free_area_rev}
+\end{figure}
+
+Figure ~\ref{fig:free_area_img_single}, ~\ref{fig:free_area_img_single_rev}, ~\ref{fig:free_area_img_single2}, and ~\ref{fig:free_area_img_single_rev2} show the result of our methods, we could see that in figure ~\ref{fig:free_area_img_single} show the result of free area in forward direction, green area means it's a free area. In figure ~\ref{fig:free_area_img_single_rev} show the result of free area in reverse direction, we could see that red area is the free area. Same with the figure \ref{fig:free_area_img_single2} and ~\ref{fig:free_area_img_single_rev2}, green area is free area in forward direction and red area is free area in reverse direction.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.3]{free_area_img_single.png}
+    \caption{Free area result forward direction}
+    \label{fig:free_area_img_single}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.3]{free_area_img_single_rev.png}
+    \caption{Free area result reverse direction}
+    \label{fig:free_area_img_single_rev}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.3]{free_area_img_single2.png}
+    \caption{Free area result forward direction}
+    \label{fig:free_area_img_single2}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.3]{free_area_img_single_rev2.png}
+    \caption{Free area result reverse direction}
+    \label{fig:free_area_img_single_rev2}
+\end{figure}
+	
+\section{Conclusions}
+\label{sec:conclusion}
+In this project, we attempt to address the problem of road parsing and generating the occupancy map from the bird view. The system architecture for bird-view occupancy map generation including:
+\begin{enumerate}
+    \item Object detection by Faster R-CNN
+    \item Multiple object tracking 
+    \item Lane detection 
+    \item Depth estimation and ego motion estimation
+    \item Data structure for visualization.
+\end{enumerate}
+
+For lane detection, two lane detection schemes have been investigated.  One  is implemented based on Opencv and the other is based on Mask R-CNN.
+
+For depth estimation, we investigated three approaches and reported the performance assessment based on test data from KITTI datasets, which provided  ground truth for 3d depth information,  In particular, we develop a simple and effective depth estimation heuristic based on known line segment length in Taiwan highways, which outperforms the other two approaches: estimated depth based on change ratio of bounding box ratio proposed by Mobileye, and depth and ego-motion edition by deep learning from U. C. Berkeley without precise parameters of the camera model. 
+
+    
+\pagebreak
+\bibliographystyle{ieeetr}
+\bibliography{bibtex_src}	
+\pagebreak
+
+\pagebreak
+\vspace*{\fill}
+\noindent
+\makebox[\textwidth]{\Huge Appendix}
+\vfill
+
+\pagebreak
+\section{Requirement}
+\begin{enumerate}
+    \item numpy
+    \item scipy
+    \item Pillow
+    \item cython
+    \item matplotlib
+    \item scikit-image
+    \item tensorflow $>=$ 1.9.0
+    \item keras $>=$ 2.2.4
+    \item opencv-python $>=$ 3.3
+    \item opencv-contrib-python $>=$ 3.3
+    \item h5py
+    \item imgaug
+    \item pycocotools
+\end{enumerate}
+
+\section{File Tree}
+\subsection{Major Program File Tree}
+\par Trojectory\_Final
+\par $|--$ object\_detection
+\par $|\quad\quad|--$ object\_detection.py
+\par $|$
+\par $|--$ Mask\_RCNN
+\par $|\quad\quad|--$ samples
+\par $|\quad\quad\ \quad\quad|--$ coco
+\par $|\quad\quad\ \quad\quad|\quad\quad|--$ bdd100k\_drivable.py
+\par $|\quad\quad\ \quad\quad|$ 
+\par $|\quad\quad\ \quad\quad|--$ demo\_bdd100k\_drivable.py
+\par $|$
+\par $|--$ Driving\_Information
+\par $|\quad\quad|--$ YTW\_tracker
+\par $|\quad\quad|\quad\quad|--$ demo
+\par $|\quad\quad|\quad\quad\ \quad\quad|--$ ytw\_tracker.py
+\par $|\quad\quad|\quad\quad$
+\par $|\quad\quad|--$ combine\_image\_and\_lane\_seg\_bdd100k.py
+\par $|\quad\quad|--$ distance\_estimation.py
+\par $|\quad\quad|--$ lane\_lines\_bird\_view.py
+\par $|\quad\quad|--$ ROI\_selection.py
+\par $|\quad\quad|--$ ROI\_selection\_auto.py
+\par $|$
+\par $|--$ Depth
+\par $|\quad\quad|--$ fix\_distance\_depth.py
+\par $|$
+\par $|--$ free\_area
+\par $|\quad\quad|--$ autodec\_reverse.py
+\par $|$
+\par $|--$ struct2depth
+\par $|\quad\quad|--$ run\_struct2depth.py
+\par $|$
+\par $|--$ SfM
+\par $|\quad\quad|--$ get\_point\_pairs.py
+\par $|$
+\par $|--$ Scale
+\par $|\quad\quad|--$ get\_scale.py
+\par $|\quad\quad|--$ EMA\_speed\_estimation.py
+\par $|$
+\par $|--$ Trajectory
+\par $|\quad\quad|--$ draw\_trajectory.py
+\par $|\quad\quad|--$ position\_plt.py
+\par $|$
+\par $|--$ Demo
+\par $|\quad\quad|--$ image\_combine.py
+\par $|\quad\quad|--$ img2video.py
+\par $|\quad\quad|--$ resize\_img.py
+\par $|$
+\par $|--$ bbox\_3d\_one
+\par $|\quad\quad|--$ prediction.py
+\par $|\quad\quad|\quad\quad|--$ utils
+\par $|\quad\quad|\quad\quad\ \quad\quad|--$ visualization3Dbox.py
+\par $|$
+\par $|--$ misc
+\par $|\quad\quad|--$ bb3d\_converter.py
+\par $|$
+\par $|--$ run.py
+\par $|--$ run.sh
+\par $|--$ 3d\_bbox\_run.py
+\par $|--$ bev\_run.py
+\par $|--$ combine\_image\_with\_lane\_seg\_run.py
+\par $|--$ draw\_trajectory\_run.py
+\par $|--$ EMA\_speed\_estimation\_run.py
+\par $|--$ get\_scale\_run.py
+\par $|--$ image\_combine\_run.py
+\par $|--$ img2video\_run.py
+\par $|--$ lane\_lines\_bird\_view\_run.py
+\par $|--$ lane\_mask\_run.py
+\par $|--$ object\_detection\_run.py
+\par $|--$ point\_pairs\_from\_SfM\_run.py
+\par $|--$ position\_plt\_run.py
+\par $|--$ resize\_and\_paste\_car\_run.py
+\par $|--$ trajectory\_run.py
+
+\subsection{Data File Tree}
+\par For each video, you need to save it as image sequence ("0000.png", "0001.png", ...), and create a folder for each video, such as "video\_one", then place the image sequence into folder "video\_one/Images".
+\par Data other than images will be produced by the program automatically, the data structure is shown as follows :
+\\
+\par your/video/folder
+\par $|--$ Images
+\par $|\quad\quad|--$ image files ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ 3D\_bbox
+\par $|\quad\quad|--$ 3D bounding box result visualization ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ 3D\_prediction
+\par $|\quad\quad|--$ 3D bounding box result ("0000.txt", "0001.txt", ...)
+\par $|$
+\par $|--$ Annotations
+\par $|\quad\quad|--$ annotation files ("0000.xml", "0001.xml", ...)
+\par $|$
+\par $|--$ BB3D\_Annotations
+\par $|\quad\quad|--$ annotation files in 3D bounding box format ("0000.txt", "0001.txt", ...)
+\par $|$
+\par $|--$ BoundingBox
+\par $|\quad\quad|--$ image files for visualize bounding box ("0000.jpg", "0001.jpg", ...)
+\par $|$
+\par $|--$ Depth
+\par $|\quad\quad|--$ image files for visualize depth information and npy file for saving depth information
+\par $|\quad\quad\ \quad\quad$ ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ Feature\_Points
+\par $|\quad\quad|--$ Feature point pairs from ”Structure from Motion” ("0002.h5", "0003.h5", ...)
+\par $|$
+\par $|--$ Free\_Area
+\par $|\quad\quad|--$ Free area information in every frames ("0000.h5", "0001.h5", ...)
+\par $|$
+\par $|--$ Free\_Area\_Vis
+\par $|\quad\quad|--$ Free\_Area\_Col
+\par $|\quad\quad|\quad\quad|--$ Free area visualization result ("0000.png", "0001.png", ...)
+\par $|\quad\quad|$
+\par $|\quad\quad|--$ Free\_Area\_Raw
+\par $|\quad\quad|\quad\quad|--$ Free area raw visualization result ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ Information
+\par $|\quad\quad|--$ HDF5 files for saving car coordinate in a bird view map ("0000.h5", "0001.h5", ...)
+\par $|$
+\par $|--$ JSON\_Annotations
+\par $|\quad\quad|--$ Save all of the annotations result in the .json format ("out.json")
+\par $|$
+\par $|--$ Lane\_Lines
+\par $|\quad\quad|--$ Bird\_Lane
+\par $|\quad\quad|\quad\quad|--$ HDF5 files for saving lane line points in bird view 
+\par $|\quad\quad|\quad\quad\ \quad\quad$ ("0000.h5", "0001.h5", ...)
+\par $|\quad\quad|$
+\par $|\quad\quad|--$ Color
+\par $|\quad\quad|\quad\quad|--$ image files for visualize lane lines in front view 
+("0000.png", "0001.png", ...)
+\par $|\quad\quad|$
+\par $|\quad\quad|--$ Combine
+\par $|\quad\quad\ \quad\quad|--$ image files for visualize lane lines on original images 
+("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ Lane\_Seg
+\par $|\quad\quad|--$ Mask\_RCNN\_BDD100k\_Color
+\par $|\quad\quad|\quad\quad|--$ image files for visualize lane segmentation ("0000.png", "0001.png", ...)
+\par $|\quad\quad|$
+\par $|\quad\quad|--$ Mask\_RCNN\_BDD100k\_Combine
+\par $|\quad\quad|\quad\quad|--$ image files for visualize lane segmentation on original images 
+\par $|\quad\quad|\quad\quad\ \quad\quad$ ("0000.png", "0001.png", ...)
+\par $|\quad\quad|$
+\par $|\quad\quad|--$ Mask\_RCNN\_BDD100k\_Gray
+\par $|\quad\quad\ \quad\quad|--$ grayscale image files for saving lane segmentation labels 
+\par $|\quad\quad\ \quad\quad\ \quad\quad$ ("0000-seg.png", "0001-seg.png", ...)
+\par $|$
+\par $|--$ Map
+\par $|\quad\quad|--$ Trajectory Maps for demo ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ Map\_paste
+\par $|\quad\quad|--$ Trajectory Maps with a car image on it ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ result
+\par $|\quad\quad|--$ concatenate tracking image with map image ("0000.jpg", "0001.jpg", ...)
+\par $|$
+\par $|--$ result\_bv
+\par $|\quad\quad|--$ concatenate result image and tracking bird view image for demo 
+\par $|\quad\quad\ \quad\quad$ ("0000.jpg", "0001.jpg", ...)
+\par $|$
+\par $|--$ Rev\_Area
+\par $|\quad\quad|--$ Free area information in every frames in reverse direction ("0000.h5", "0001.h5", ...)
+\par $|$
+\par $|--$ Speed
+\par $|\quad\quad|--$ ego speed from “exponential filter” ("0000.h5", "0001.h5", ...)
+\par $|$
+\par $|--$ Speed\_New
+\par $|\quad\quad|--$ ego speed from “moving average filter” ("0000.h5", "0001.h5", ...)
+\par $|$
+\par $|--$ Speed\_Kalman
+\par $|\quad\quad|--$ ego speed from “Kalman filter” ("0000.h5", "0001.h5", ...)
+\par $|$
+\par $|--$ Tracking
+\par $|\quad\quad|--$ images for visualize the result of distance estimation in front view 
+\par $|\quad\quad\ \quad\quad$ ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ Tracking\_Bird\_View
+\par $|\quad\quad|--$ images for visualize the result of distance estimation in bird view 
+\par $|\quad\quad\ \quad\quad$ ("0000.png", "0001.png", ...)
+\par $|$
+\par $|--$ Track\_JSON\_Annotations
+\par $|\quad\quad|--$ Save the tracking result into one file .json ("out.json")
+\par $|$
+\par $|--$ egomotion.txt
+\par $|--$ camera\_parameters.txt
+\par $|--$ crash\_list.txt
+\par $|--$ EMA\_speed.png
+\par $|--$ EMA\_speed\_kalman.png
+\par $|--$ free\_area.h5
+\par $|--$ free\_area\_rev.h5
+\par $|--$ One\_Bird.png
+\par $|--$ One\_Front.png
+\par $|--$ parameters.h5
+\par $|--$ position.txt
+\par $|--$ result.avi
+\par $|--$ result\_3d.avi
+\par $|--$ reverse\_id.h5
+\par $|--$ scale.h5
+\par $|--$ scale\_kalman.h5
+\par $|--$ trajectory.png
+
+\subsection{Dataset Explanation}
+\begin{enumerate}
+    \item Images:
+        \subitem image sequence of video (image size: 1280x385)
+    \item 3D\_bbox:
+        \subitem 3D bounding box visualization result from bbox\_3d\_one
+    \item 3D\_prediction:
+        \subitem 3D bounding box raw result from bbox\_3d\_one
+    \item Annotations:
+        \subitem result of object detection (Faster R-CNN, coco, RestNet 101), save in VOC2007 format. 
+    \item BB3D\_Annotations:
+        \subitem result of object detection (Faster R-CNN, coco, RestNet 101), save in KITTI 3D bounding box format.
+    \item BoundingBox:
+        \subitem image files for visualize bounding box.
+    \item Tracking:
+        \subitem images for visualize the result of distance estimation in front view.
+    \item Tracking\_bird\_view:
+        \subitem images for visualize the result of distance estimation in bird view.
+    \item Depth:
+        \subitem Depth Map from "struct2depth".
+    \item Feature\_Points:
+        \subitem Feature point pairs from "Structure from Motion".
+    \item Free\_Area:
+        \subitem Free area information from calculate free area part.
+    \item Free\_Area\_Vis:
+        \subitem Free area visualization from calculate free area part.
+    \item Rev\_Area:
+        \subitem Free area information from calculate free area part in reverse direction.
+    \item Speed:
+        \subitem Raw speed from keypoints structure from motion.
+    \item Speed\_New:
+        \subitem Speed from “exponential moving average”.
+    \item Speed\_Kalman:
+        \subitem Speed from “Kalman Filter”.
+    \item Information:
+        \subitem HDF5 files for saving car coordinate in bird view.
+    \item JSON\_Annotations:
+        \subitem Bounding box information from object detection.
+    \item Lane\_Lines:
+        \subitem lane line points in bird view.
+    \item Lane\_Seg:
+        \subitem result of lane segmentation (Mask R-CNN, trained by Berkeley Deep Drive Driveable Area dataset: \href{https://bdd-data.berkeley.edu/}{https://bdd-data.berkeley.edu/} ).
+    \item Map:
+        \subitem Trajectory Map for Demo
+    \item  Map\_paste:
+        \subitem Add Car on Map
+    \item result:
+        \subitem Concatenate tracking image and Map image
+    \item result\_bv:
+        \subitem Concatenate result image and Tracking\_bird\_view image for demo
+    \item egomotion.txt:
+        \subitem ego-motion from “struct2depth”
+        \subitem tx, ty, tz, rx, ry, rz
+    \item camera\_parameters.png:
+        \subitem Camera parameters estimation result from "distance\_estimation"
+    \item crash\_list.png:
+        \subitem List of crashed vehicle from "distance\_estimation"
+    \item EMA\_speed.png:
+        \subitem Figure of speed from “exponential moving average filter”
+    \item EMA\_speed\_kalman.png:
+        \subitem Figure of speed from “Kalman filter”
+    \item free\_area.h5:
+        \subitem Free area starting point
+    \item free\_area\_rev.h5:
+        \subitem Free area starting point in reverse direction
+    \item One\_bird.png:
+    \item  One\_Front.png:
+    \item Parameters.h5:
+        \subitem parameters for inverse perspective transformation.
+    \item Position.txt:
+        \subitem Position information
+        \subitem Frame, Xego, Yego, Number of objects, (ID Xobject Yobject)*N
+    \item Result.avi:
+        \subitem Demo video
+    \item Result\_3d.avi:
+        \subitem Demo video from 3D bounding box estimation
+    \item reverse\_id.avi:
+        \subitem Object ID that have reverse direction
+    \item Scale.h5:
+        \subitem Scale parameter
+        \subitem scale(Median), scale\_list(All scale)
+    \item Scale\_kalman.h5:
+        \subitem Scale parameter
+        \subitem scale(Median), scale\_list(All scale)
+    \item Trajectory.png:
+        \subitem Trajectory Map(All)
+    \item Track\_JSON\_Annotations:
+        \subitem Bounding box information from tracker.
+\end{enumerate}
+
+\section{Pre-processing}
+\label{sec:pre}
+\subsection{Clip Videos}
+    We generate trajectory from YouTube accident videos, we clip the video, keep a 5-10 second video before the car accident, or it around 100 frames before the accident happened.
+
+\subsection{Video to Image and Capture Image RoI}
+    Save video frames as Image file and resize the image. Some information in car accident video are redundant, such as the car hood, a lot of sky screen or some texts. We remove their information before ego-motion estimation. Finally, the input of our system are sequence frames of  1280x385 size and must be png format.
+    
+\begin{figure}[!ht]
+	\centering
+	\vspace{6mm}
+	\includegraphics[width=0.6\textwidth]{capture_roi}
+	\caption[Capture image RoI]{Capture image RoI - Remove areas that are not important and affect Ego-motion prediction, leave region of interest (green box).}
+	\label{capture_roi}
+\end{figure}
+\section{Usage}
+\subsection{Run for One Video}
+\par To run on one video, you need to run :
+\par sh run.sh
+\\
+\\ \textbf{Example:}
+\\ For each video, you need to save it as image sequence ("0000.png", "0001.png", ...), and create a folder for each video, such as "./dataset/crop\_27/", then place the image sequence into folder "./dataset/crop\_27/Images". 
+\\ After that, you need to change the video specified video folder in the run.sh file includes input\_dir, output\_dir , and dataset\_dir for run.py file. After finished change the directory we can run :
+\\
+\par sh run.sh
+\subsection{Run for All Videos}
+\par Change the "search\_path" in run\_all.sh file
+\\ Start the process by following instruction:
+\\
+\par sh run\_all.sh
+\\
+\\ It will search all folders in search path, then run for all datasets.
+\subsection{ROI Selection Artificial}
+\par Please see Sec. \ref{sec:ROI_art}.
+
+\subsection{Parsers}
+\par Using the following command it will show all parsers and 
+definition:
+\\
+\par python3 run.py -h
+\\
+\\ \textbf{Required:}
+\\ $-$dataset\_dir:
+\\ Set the dataset path to generate trajectory
+\\
+\\ \textbf{Optional:}
+\\ $-$dynamic:
+\\ If dynamic is "True", it will dynamic change the scale.
+\\ If dynamic is "False", it will use median of all scales as trajectory scale.
+\\ Default is False
+\\$-$zero\_rotation:
+\\ If zero\_rotation is "True", set the rotation = 0.
+\\ If zero\_rotation is "False", it will use the rotation
+predict by "struct2depth".
+\\ Default is True
+\\$-$cam:
+\\ camera parameter for camera model(image width, image length, focal length x, focal length y, camera principal point x, camera principal point y)
+\\ Default is [1280.0, 385.0, 718.8560, 718.8560, 607.1928, 185.2157]
+
+\section{Overall Methodology}
+\begin{figure}[H]
+	\centering
+	\vspace{4mm}
+	\includegraphics[width=1\textwidth]{overall}
+	\caption[Overall Methodology]{Overall Methodology}
+	\label{fig:overall}
+\end{figure}
+
+% Modules -------------------------------------------------
+\clearpage
+\section{Modules}
+    \begin{figure}[H]
+	    \centering
+	    \vspace{4mm}
+	    \includegraphics[width=1\textwidth, scale=0.5]{System_Flow_Chart.png}
+	    \caption{System flow chart of bird view car coordinate (Sec. \ref{sec:Object_Detection} to Sec. \ref{sec:Distance}).}
+	    \label{fig:System_Flow_Chart}
+    \end{figure}
+
+\subsection{Object Detection (Faster R-CNN)}
+\label{sec:Object_Detection}
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/object\_detection/object\_detection.py
+    \item \textbf{Input:} front view image. For this module, give it the directory of data, it will find out image directory "Images". For example, give the data directory as "your\_video\_folder/", it will find out image folder "your\_video\_folder/Images/".
+    \item \textbf{Output:} annotation file (result of object detection), which is saved in VOC2007 format.  For example, give the data directory as "your\_video\_folder/", the annotation files will be saved at folder "your\_video\_folder/Annotations/".
+\end{itemize}
+
+\subsection{Lane Segmentation (Mask R-CNN)}
+\label{sec:Lane_Segmentation}
+    We train a Mask R-CNN (\href{https://github.com/matterport/Mask\_RCNN}{https://github.com/matterport/Mask\_RCNN}) model by Berkeley Deep Drive Driveable Area dataset (\href{https://bdd-data.berkeley.edu/}{https://bdd-data.berkeley.edu/}), the model weights are saved at \\ "Trajectory\_Final/Mask\_RCNN/models/mask\_rcnn\_bdd100k\_drivable\_0319.h5"
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Mask\_RCNN/samples/demo\_bdd100k\_drivable.py
+    \item \textbf{Input:} front view image. For this module, give it the directory of data, it will find out image directory "Images". For example, give the data directory as "your\_video\_folder/", it will find out image folder "your\_video\_folder/Images/".
+    \item \textbf{Output:} result of lane segmentation (gray scale image files for saving lane segmentation labels). For example, give the data directory as "your\_video\_folder/", the gray scale images will be saved at folder "your\_video\_folder/Lane\_Seg/Mask\_RCNN\_BDD100k\_Gray/".
+\end{itemize}
+
+\subsection{Combine Image and Lane Seg}
+\label{sec:Combine_Image_and_Lane}
+This module is a simple process for visualize ego lane segmentation on original image.
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Driving\_Information/combine\_image\_and\_lane\_seg\_bdd100k.py
+    \item \textbf{Input:} front view image and the output of Seg. \ref{sec:Lane_Segmentation}
+    \item \textbf{Output:} images for visualize lane segmentation on original images. For example, give the data directory as "your\_video\_folder/", the images will be saved at folder \\ "your\_video\_folder/Lane\_Seg/Mask\_RCNN\_BDD100k\_Combine/".
+\end{itemize}
+
+\subsection{ROI Selection}
+\label{sec:ROI}
+This module is divided into two parts, automatic module and artificial module. If automatic module fail, it will change to artificial module. In the automatic module itself consist of two modules. The flowchart is shown like in figure ~\ref{fig:aa.png}.
+    
+\begin{figure}[!b]
+    \centering
+	\includegraphics[scale=0.7]{aa.png}]
+    \caption{ROI Selection Flow Chart.}
+    \label{fig:aa.png}	
+\end{figure}
+    
+\subsubsection{ROI Selection Automatic using Lane Information}
+\label{sec:ROI_auto}
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Driving\_Information/ROI\_selection\_auto.py
+    \item \textbf{Input:} lane segmentation, which is the output of Seg. \ref{sec:Lane_Segmentation}
+    \item \textbf{Output:} HDF5 file for saving parameters of inverse perspective transformation. For example, give the data directory as "your\_video\_folder/", the directory of HDF5 file will be \\"your\_video\_folder/parameters.h5" 
+\end{itemize}
+*Note: In the automatic RoI selection using lane information like shown in figure ~\ref{sec:ROI}, if the automatic mapping result is out of our expectation, we could do it manually by press "X" on the keyboard if there is no lane information, or press "Z" on the keyboard if there is lane information but this methods is failed, then close the plotting window if and we could continue to do it using depth map and lane segmentation information.
+    
+\begin{figure}[!t]
+    \centering
+	\includegraphics[scale=0.8]{Architecture-ROI.png}]
+    \caption{ROI Selection Automatic.}
+    \label{fig:ROI}	
+\end{figure}
+
+\subsubsection{ROI Selection Automatic using Depth and Lane Segmentation}
+\label{sec:ROI_auto}
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Depth/fix\_distance\_depth.py
+    \item \textbf{Input:} lane segmentation, which is the output of Seg. \ref{sec:Lane_Segmentation}, Depth Map, and Bounding Information from tracker.
+    \item \textbf{Output:} HDF5 file for saving parameters of inverse perspective transformation. For example, give the data directory as "your\_video\_folder/", the directory of HDF5 file will be \\"your\_video\_folder/parameters.h5" 
+\end{itemize}
+*Note: In the automatic RoI selection using depth map and lane segmentation information like shown in figure ~\ref{fig:4po}, if the automatic mapping result is out of our expectation, we could do it manually by press "X" on the keyboard and then close the plotting window, and then we could do it manually.
+
+\begin{figure}[!t]
+    \centering
+	\includegraphics[scale=0.5]{distance_depth_revv.png}]
+    \caption{ROI Selection Automatic using Depth and Lane Segmentation Information.}
+    \label{fig:4po}	
+\end{figure}
+    
+\subsubsection{ROI Selection Artificial}
+\label{sec:ROI_art}
+If the process in Seg. \ref{sec:ROI_auto} fail or out of our expectation, it will change to artificial mode.
+
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Driving\_Information/ROI\_selection.py
+    \item \textbf{Input:} front view image. For this module, give it the directory of data, it will find out image directory "Images". For example, give the data directory as "your\_video\_folder/", it will find out image folder "your\_video\_folder/Images/".
+    \item \textbf{Output:} HDF5 file for saving parameters of inverse perspective transformation. For example, give the data directory as "your\_video\_folder/", the directory of HDF5 file will be \\"your\_video\_folder/parameters.h5"
+    \item \textbf{Usage:} If a screen pops up a window as Fig. \ref{fig:ROI_art_0}, it means the program enters manual mode. You need to point the four endpoints of the lane in order (Top left, Top right, Bottom left, Bottom right) with the mouse. \textbf{Please pay special attention to all points must be on the ego lane lines, as shown in Fig. \ref{fig:ROI_art_0}}. After you point out the four endpoints, press the key "q" to go to the next step as shown in Fig. \ref{fig:ROI_art_1}. You can adjust the RoI by pressing the button "up" and the button "down". \textbf{When the length of one dotted line is equal to ten meters (White Line: 4 meters, Inter Space: 6 meters)}, you can close the window and the program will automatically save the parameters.
+\end{itemize}
+
+\begin{figure}[!t]
+    \centering
+	\includegraphics[scale=0.4]{ROI_art_0.png}]
+    \caption{ROI Selection Artificial Part 1.}
+    \label{fig:ROI_art_0}	
+\end{figure}
+
+\begin{figure}[!t]
+    \centering
+	\includegraphics[scale=0.5]{ROI_art_1.png}]
+    \caption{ROI Selection Artificial Part 2.}
+    \label{fig:ROI_art_1}	
+\end{figure}
+    
+\subsection{Lane Lines Bird View}
+\label{sec:Lane_Lines}
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Driving\_Information/lane\_lines\_bird\_view.py
+    \item \textbf{Input:} front view image, parameters for inverse perspective transformation (output of Seg. \ref{sec:ROI}) and the lane segmentation (output of Seg. \ref{sec:Lane_Segmentation})
+    \item \textbf{Output:} HDF5 files for saving lane line points in bird view. For example, give the data directory as "your\_video\_folder/", the HDF5 files will be saved at folder \\ "your\_video\_folder/Lane\_Lines/Bird\_Lane/".
+\end{itemize}
+
+\begin{figure}[!t]
+    \centering
+	\includegraphics[scale=0.6]{System_Flow_Chart_line.png}]
+    \caption{Lane Lines Bird View.}
+    \label{fig:System_Flow_Chart_line}	
+\end{figure}
+	
+\begin{figure}[!b]
+    \centering
+	\includegraphics[scale=0.5]{Architecture-Outlier.png}]
+    \caption{Outlier Removal.}
+    \label{fig:Architecture}	
+\end{figure}
+
+\subsection{Distance Estimation}
+\label{sec:Distance}
+
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Driving\_Information/distance\_estimation.py
+    \item \textbf{Input:} front view image, parameters for inverse perspective transformation (output of Seg. \ref{sec:ROI}), lane line points in bird view (output of Seg. \ref{sec:Lane_Lines}) and the bounding box coordinate (output of Seg. \ref{sec:Object_Detection})
+    \item \textbf{Output 1 :} HDF5 files for saving car coordinate in a bird view map. For example, give the data directory as "your\_video\_folder/", the HDF5 files will be saved at folder \\ "your\_video\_folder/Information/".
+    \item \textbf{Output 2 :} From distance estimation it would also save the list of crashed vehicle, the result will be saved in the crash\_list.txt file.
+    \item \textbf{Output 3 :} Almost of all of the video we don't know the camera parameters, using some formula we tried to calculate the camera parameters based on the detected objects. The camera parameters estimation result will be saved in the camera\_parameters.txt file.
+    \item \textbf{Output 4 :} From the tracking result we tried to save it into the KITTI format, so it can be process into the 3D bounding box step. The result will be saved in the BB3D\_Annotations folder followed by the file names (0000.txt, 0001.txt, 0002.txt, etc).
+\end{itemize}
+
+\begin{figure}[!t]
+    \centering
+	\includegraphics[scale=0.6]{Architecture-Bird.png}]
+    \caption{Distance Estimation.}
+    \label{fig:Distance}	
+\end{figure}
+    
+\subsection{struct2depth(Fig. \ref{fig:sfm})}
+struct2depth module
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/struct2depth/inference.py
+    \item \textbf{Input :} Three sequence images
+    \item \textbf{Output 1 :} Depth map(Depth)
+    \item \textbf{Output 2 :} Ego-motion(egomotion.txt)
+\end{itemize}
+
+\subsubsection{run\_struct2depth.py}
+Processing struct2depth shown in Fig. \ref{fig:sfm}.
+
+\begin{figure}[!t]
+\centering
+\vspace{4mm}
+\includegraphics[scale=0.5]{lev.png}
+\caption{Overview of the supervision pipeline based on view synthesis}
+\label{fig:sfm}
+\end{figure}
+
+\subsection{SfM(Fig. \ref{fig:mvo})}
+structure from motion module
+
+\begin{figure}[!t]
+	\centering
+	\vspace{4mm}
+	\includegraphics[scale=0.5]{mvo}
+	\caption[The Pipeline of Structure from Motion]{The Pipeline of Structure from Motion}
+	\label{fig:mvo}
+\end{figure}
+
+\begin{figure}[!t]
+	\centering
+	\vspace{4mm}
+	\includegraphics[scale=0.3]{absolute_scale}
+	\caption[The Pipeline of Absolute Scale]{The Pipeline of Absolute Scale}
+	\label{fig:scale}
+\end{figure}
+
+\subsubsection{get\_point\_pairs.py}
+Get feature point pairs by structure from motion.
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/SfM/get\_point\_pairs.py
+    \item \textbf{Input 1 :} RGB Images
+    \item \textbf{Input 2 :} Annotations (From Object Detection)
+    \item \textbf{Input 3 :} Camera Parameters
+    \item \textbf{Output:} Feature point pairs(Feature\_Points)
+\end{itemize}
+
+
+
+\subsection{Scale(Fig. \ref{fig:scale})}
+This module is used to calculate the trajectory scale
+
+\subsubsection{EMA\_speed\_estimation.py}
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Scale/EMA\_speed\_estimation.py
+    \item \textbf{Input 1 :} Feature point pairs
+    \item \textbf{Input 2 :} BEV Parameters
+    \item \textbf{Output:} Raw Speed (Speed Folder)
+\end{itemize}
+
+\subsubsection{get\_scale.py}
+Fig. \ref{fig:scale}: Step.6
+
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Scale/get\_scale.py
+    \item \textbf{Input 1 :} Speed calculated by feature point pairs
+    \item \textbf{Input 2 :} Ego-motion
+    \item \textbf{Output 1 :} Scale(scale.h5)
+    \item \textbf{Output 2 :} Speed calculated by exponential and moving average filter (Speed\_New folder)
+    \item \textbf{Output 3 :} Speed calculated by Kalman filter (Speed\_Kalman folder)
+    \item \textbf{Output 4 :} Scale list from Kalman Filter (scale\_kalman.h5)
+\end{itemize}
+*Note : The scaling file that we use is scale\_kalman.h5 and the final speed result is Speed\_Kalman folder.
+
+\subsection{Free Area (Fig. \ref{fig:free_area_revv})}
+
+This step is used to calculate the free area and save the object ID that come in reverse direction.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.5]{free_area_rev_newe.png}
+    \caption{Calculate the free area flowchart}
+    \label{fig:free_area_revv}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Scale/EMA\_speed\_estimation.py
+    \item \textbf{Input 1 :} Information
+    \item \textbf{Input 2 :} BEV parameters
+    \item \textbf{Input 3 :} RGB images
+    \item \textbf{Input 4 :} Lane segmentation
+    \item \textbf{Output 1 :} Free area information
+    \item \textbf{Output 2 :} Free area visualization
+    \item \textbf{Output 3 :} Free area information in reverse direction
+    \item \textbf{Output 4 :} Free area visualization in reverse direction
+    \item \textbf{Output 5 :} Free area starting point
+    \item \textbf{Output 6 :} Free area starting point in reverse direction
+    \item \textbf{Output 7 :} Object ID that in the reverse direction
+\end{itemize}
+
+
+\subsection{Trajectory (Fig. \ref{fig:object_position})}
+This module is used calculate absolute object motion and draw map
+
+\begin{figure}[H]
+	\centering
+	\vspace{4mm}
+    \includegraphics[width=0.4\textwidth]{coordinate}
+	\caption[Pipeline of coordinate transformation]{Pipeline of coordinate transformation}
+	\label{fig:object_position}
+\end{figure}
+
+\subsubsection{draw\_trajectory.py}
+Draw trajectory map for demo
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Trajectory/draw\_trajectory.py
+    \item \textbf{Input 1 :} Ego-motion
+    \item \textbf{Input 2 :} Scale
+    \item \textbf{Input 3 :} Object relative position
+    \item \textbf{Input 4 :} Object ID in reverse direction
+    \item \textbf{Output:} Trajectory map(Map)
+\end{itemize}
+
+\subsubsection{position\_plt.py}
+Draw world trajectory, save position information
+\begin{itemize}
+    \item \textbf{Module directory:} Trajectory\_Final/Trajectory/position\_plt.py
+    \item \textbf{Input 1 :} Ego-motion, , 
+    \item \textbf{Input 2 :} Object relative position
+    \item \textbf{Input 3 :} Scale
+    \item \textbf{Input 4 :} Crash List
+    \item \textbf{Output 1 :} Trajectory map(trajectory.png)
+    \item \textbf{Output 2 :} Position information(position.txt)
+\end{itemize}
+
+\subsection{3D Bounding Box}
+Estimate the 3D bounding box and visualize it
+\begin{itemize}
+    \item \textbf{Module directory 1 :} Trajectory\_Final/bbox\_3d\_one/prediction.py
+    \item \textbf{Module directory 2 :} Trajectory\_Final/bbox\_3d\_one/utils/visualization3Dbox.py
+    \item \textbf{Input 1 :} RGB Images
+    \item \textbf{Input 2 :} Depth Images
+    \item \textbf{Input 3 :} 2D annotation file in KITTI format
+    \item \textbf{Output:} 3D bounding box estimation in KITTI format and the visualization
+\end{itemize}
+
+\begin{figure}[!b]
+    \centering
+	\includegraphics[scale=0.75]{3de.png}]
+    \caption{The Pipeline of 3D bounding box estimation.}
+    \label{fig:3d}	
+\end{figure}
+
+\subsubsection{prediction.py}
+\par Predict the 3D bounding box orientation, dimension and, confidence score based on the 2D bounding box from tracker
+\subsubsection{visualization3Dbox.py}
+\par Visualize the 3D bounding box from prediction.py file
+
+\subsection{Demo}
+\par Generate demo video
+\subsubsection{resize\_img.py}
+\par Resize image and paste car image
+\subsubsection{image\_combine.py}
+\par Combine tracking result, trajectory map, and bird's eyes view grid map 
+\subsubsection{img2video.py}
+\par Generate demo video
+\subsubsection{img2video\_3d.py}
+\par Generate demo video from 3D bounding box result
+
+\end{document}
